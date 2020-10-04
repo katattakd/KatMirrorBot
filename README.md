@@ -12,7 +12,7 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 - Detects and prevents "reposts" (duplicate images) from being uploaded to the bot account.
 - Detects and prevents corrupted images from being uploaded.
 - Automatic post interval detection based on post depth and subreddit activity.
-- Written in pure Golang, with no C dependencies, to allow for easy cross-compilation.
+- Written in pure Golang with no C dependencies, to allow for easy cross-compilation.
 
 ## Compiling
 1. Install and setup [Golang](https://golang.org/) for your system.
