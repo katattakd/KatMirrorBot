@@ -1,5 +1,5 @@
 ## KatMirrorBot
-KatMirrorBot is an image mirroring bot that tries to mirror *the best* content from Reddit to Twitter. Used by [@it_meirl_bot](https://twitter.com/it_meirl_bot)
+KatMirrorBot is an image mirroring bot that tries to mirror the *best* content from Reddit to Twitter. Used by [@it_meirl_bot](https://twitter.com/it_meirl_bot)
 
 ## Features
 - Simple configuration, with support for multiple subreddits and multiple accounts.
@@ -12,6 +12,7 @@ KatMirrorBot is an image mirroring bot that tries to mirror *the best* content f
 - Detects and prevents "reposts" (duplicate images) from being uploaded to the bot account.
 - Detects and prevents corrupted images from being uploaded.
 - Automatic post interval detection based on post depth and subreddit activity.
+- Written in pure Golang, with no C dependencies, to allow for easy cross-compilation.
 
 ## Compiling
 1. Install and setup [Golang](https://golang.org/) for your system.
@@ -28,3 +29,4 @@ KatMirrorBot is an image mirroring bot that tries to mirror *the best* content f
 ## Advanced usage
 - If you intend to run more than one mirror bot using the program, it's recommended that you disable verbose output. Console messages from the different bots will interfere with each-other, creating a confusing mess in your terminal.
 - If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 64-bit difference hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
+- Cross-compilation should be trivial to do (setting the `GOOS` and `GOARCH` environment variables), due to the lack of C dependencies. For a list of targets supported by the Golang compiler, run `go tool dist list`.
