@@ -187,6 +187,8 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n")
 			}
 		}
+		runtime.GC()
+		runtime.Gosched()
 		time.Sleep(waitTime)
 	}
 }
@@ -298,7 +300,7 @@ func downloadImage(img string, client *http.Client, verbose bool) ([]byte, error
 	}
 	resp, err := client.Get(img)
 	if err != nil || resp.StatusCode >= 400 {
-		if resp != nil {
+		if resp.Body != nil {
 			resp.Body.Close()
 		}
 		return []byte{}, err
