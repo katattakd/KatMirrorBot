@@ -1,11 +1,11 @@
 ## KatMirrorBot
-KatMirrorBot is an image mirroring bot that tries to mirror the *best* content from Reddit to Twitter. Used by [@it_meirl_bot](https://twitter.com/it_meirl_bot)
+KatMirrorBot is an image mirroring bot that tries to mirror the *best* content from Reddit to Twitter. Used by [@it_meirl_bot](https://twitter.com/it_meirl_bot).
 
 ## Features
 - Simple configuration, with support for multiple subreddits and multiple accounts.
 - Easily recovers from crashes, without leaving behind temporary files.
 - Has both an easy to read verbose log format, or a minimal quiet log format.
-- Human-readable and easily editable data storage format, backwards-compatible with [Tootgo](https://github.com/katattakd/Tootgo)
+- Human-readable and easily editable data storage format, backwards-compatible with [Tootgo](https://github.com/katattakd/Tootgo).
 - Fast in-RAM data storage, with extremely quick post lookups and very little disk load.
 - Automatically detects the best "hot" posts to mirror, based on various metrics like upvotes, upvote rate, upvote:downvote ratio, and post age.
 - Automatic post criteria detection based on other subreddit posts.
