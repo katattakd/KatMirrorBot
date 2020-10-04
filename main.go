@@ -89,7 +89,7 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[int64]st
 		}
 	}
 	if config.Verbose {
-		fmt.Println(len(idset), "post IDs loaded into memory,", len(hashset), "image hashes loaded into memory.\n")
+		fmt.Println(len(idset), "post IDs loaded into memory,", len(hashset), "image hashes loaded into memory.\n\n")
 	}
 	return idset, hashset, config, f
 }
@@ -184,7 +184,7 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 			}
 
 			if config.Verbose {
-				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n")
+				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n\n")
 			}
 		}
 		runtime.GC()
