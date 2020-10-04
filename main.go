@@ -363,7 +363,7 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 		upvoteRatios = append(upvoteRatios, int(post.UpvoteRatio*100))
 		upvoteRates = append(upvoteRates, int(float64(post.Score)/time.Since(post.Created.Time).Hours()))
 		scores = append(scores, post.Score)
-		ages = append(ages, int(time.Since(post.Created.Time.UTC()).Nanoseconds()))
+		ages = append(ages, int(time.Now().UTC().Sub(post.Created.Time.UTC()).Seconds()))
 	}
 	sort.Ints(upvoteRatios)
 	sort.Ints(upvoteRates)
@@ -380,8 +380,8 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 	upvoteRatioTarget := upvoteRatios[((len(upvoteRatios)*1)/10)-1]
 	upvoteRateTarget := upvoteRates[((len(upvoteRates)*25)/100)-1]
 	scoreTarget := scores[((len(scores)*25)/100)-1]
-	ageTargetMin := time.Duration(ages[((len(ages)*1)/10)-1])
-	ageTargetMax := time.Duration(ages[((len(ages)*9)/10)-1])
+	ageTargetMin := time.Duration(ages[((len(ages)*1)/10)-1]) * time.Second
+	ageTargetMax := time.Duration(ages[((len(ages)*9)/10)-1]) * time.Second
 
 	if verbose {
 		fmt.Println("Analyzed 100 posts from /r/"+subreddit+".", 100-len(scores), "posts were unusable for image mirroring.\nCurrent posting criteria:\n\tMinimum upvotes:", scoreTarget, "\n\tMinimum upvote rate:", upvoteRateTarget, "upvotes/hour\n\tMinimum upvote to downvote ratio:", float32(upvoteRatioTarget)/100, "\n\tAllowed post age range:", ageTargetMin.Round(time.Second), "-", ageTargetMax.Round(time.Second))
@@ -389,7 +389,7 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 
 	var goodPosts []*reddit.Post
 	for _, post := range posts {
-		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 || int(post.UpvoteRatio*100) < upvoteRatioTarget || post.Score < scoreTarget || float64(post.Score)/time.Since(post.Created.Time).Hours() < float64(upvoteRateTarget) || time.Since(post.Created.Time) > ageTargetMax || time.Since(post.Created.Time) < ageTargetMin {
+		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 || int(post.UpvoteRatio*100) < upvoteRatioTarget || post.Score < scoreTarget || float64(post.Score)/time.Since(post.Created.Time).Hours() < float64(upvoteRateTarget) || time.Now().UTC().Sub(post.Created.Time.UTC()) > ageTargetMax || time.Now().UTC().Sub(post.Created.Time.UTC()) < ageTargetMin {
 			continue
 		}
 		goodPosts = append(goodPosts, post)
