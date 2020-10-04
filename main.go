@@ -363,7 +363,7 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 		upvoteRatios = append(upvoteRatios, int(post.UpvoteRatio*100))
 		upvoteRates = append(upvoteRates, int(float64(post.Score)/time.Since(post.Created.Time).Hours()))
 		scores = append(scores, post.Score)
-		ages = append(ages, int(time.Since(post.Created.Time).Nanoseconds()))
+		ages = append(ages, int(time.Since(post.Created.Time.UTC()).Nanoseconds()))
 	}
 	sort.Ints(upvoteRatios)
 	sort.Ints(upvoteRates)
