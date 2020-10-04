@@ -93,7 +93,7 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[int64]st
 }
 
 func main() {
-	idset, hashset, config, rawDB := loadDB("conf.json", "posts.txt")
+	idset, hashset, config, rawDB := loadDB("conf.json", "posts.csv")
 
 	client := &http.Client{
 		Timeout: 30 * time.Second,
