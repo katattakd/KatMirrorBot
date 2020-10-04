@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,20 +95,34 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[int64]st
 }
 
 func main() {
+	debug.SetGCPercent(15)
 	idset, hashset, config, rawDB := loadDB("conf.json", "posts.csv")
+	defer rawDB.Close()
+	runtime.GOMAXPROCS((len(config.Bots) / 8) + 1)
 
 	client := &http.Client{
+		Transport: &http.Transport{
+			IdleConnTimeout: 1 * time.Hour,
+		},
 		Timeout: 30 * time.Second,
 	}
-	rclient, _ := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
-
-	for i, _ := range config.Bots {
-		go runBot(client, rclient, rawDB, idset, hashset, config, i)
+	rclient, err := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
+	if err != nil {
+		fmt.Println("Unable to create Reddit client! Error:\n", err)
+		os.Exit(1)
 	}
 
-	cr := make(chan os.Signal, 1)
-	signal.Notify(cr, syscall.SIGHUP)
-	<-cr
+	if len(config.Bots) > 1 {
+		for i, _ := range config.Bots {
+			go runBot(client, rclient, rawDB, idset, hashset, config, i)
+		}
+
+		cr := make(chan os.Signal, 1)
+		signal.Notify(cr, syscall.SIGHUP)
+		<-cr
+	} else {
+		runBot(client, rclient, rawDB, idset, hashset, config, 0)
+	}
 }
 
 func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset map[string]struct{}, hashset map[int64]struct{}, config Conf, botIndex int) {
@@ -114,11 +130,11 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 	for i, sub := range config.Bots[botIndex].Reddit.Subs {
 		if i == 0 {
 			subreddit = sub
-		} else {
+		} else if sub != "" {
 			subreddit = subreddit + "+" + sub
 		}
 	}
-	if len(config.Bots[botIndex].Reddit.Subs) == 0 {
+	if len(subreddit) == 0 {
 		return
 	}
 
@@ -146,12 +162,14 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Uploading", postID, "to twitter...")
 			}
 
-			res, _, err := tclient.Media.Upload(imageData, "image/"+imageType)
+			res, resp, err := tclient.Media.Upload(imageData, "image/"+imageType)
+			resp.Body.Close()
 			if err == nil && res.MediaID > 0 {
-				tweet, _, err := tclient.Statuses.Update(postTitle+" https://redd.it/"+postID, &twitter.StatusUpdateParams{
+				tweet, resp, err := tclient.Statuses.Update(postTitle+" https://redd.it/"+postID, &twitter.StatusUpdateParams{
 					MediaIds:          []int64{res.MediaID},
 					PossiblySensitive: &postNSFW,
 				})
+				resp.Body.Close()
 				if err == nil {
 					if config.Verbose {
 						fmt.Println("Tweet:\n\t"+tweet.Text, "\n\thttps://twitter.com/"+tweet.User.ScreenName+"/status/"+tweet.IDStr)
@@ -280,14 +298,14 @@ func downloadImage(img string, client *http.Client, verbose bool) ([]byte, error
 	}
 	resp, err := client.Get(img)
 	if err != nil || resp.StatusCode >= 400 {
-		if resp.Body != nil {
+		if resp != nil {
 			resp.Body.Close()
 		}
 		return []byte{}, err
 	}
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
 	return body, err
 }
 
