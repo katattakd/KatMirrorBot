@@ -234,7 +234,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			mutex.Unlock()
 			continue
 		}
-		hashraw, err := goimagehash.PerceptionHash(imageData)
+		hashraw, err := goimagehash.ExtPerceptionHash(imageData, 16, 16)
 		if err != nil {
 			if verbose {
 				fmt.Println("Unable to hash image! Error:\n", err)
