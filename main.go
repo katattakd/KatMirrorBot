@@ -17,13 +17,12 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/anthonynsimon/bild/transform"
+	"github.com/corona10/goimagehash"
 	"github.com/dghubble/oauth1"
 	"github.com/katattakd/go-twitter/twitter" // FIXME: Waiting for https://github.com/dghubble/go-twitter/pull/148 to be closed
 	"github.com/vartanbeno/go-reddit/reddit"
@@ -49,7 +48,7 @@ type Conf struct {
 	Verbose bool `json:"verbose"`
 }
 
-func loadDB(configFile string, dBfile string) (map[string]struct{}, map[int64]struct{}, Conf, *os.File) {
+func loadDB(configFile string, dBfile string) (map[string]struct{}, map[string]struct{}, Conf, *os.File) {
 	fmt.Println("Loading data...")
 
 	var config Conf
@@ -73,19 +72,15 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[int64]st
 	}
 
 	idset := make(map[string]struct{})
-	hashset := make(map[int64]struct{})
+	hashset := make(map[string]struct{})
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		postinfo := strings.Split(scanner.Text(), ",")
 		if len(postinfo) == 1 {
 			idset[postinfo[0]] = struct{}{}
 		} else {
-			ihash, err := strconv.ParseInt(postinfo[1], 10, 64)
-			if err != nil {
-				ihash = 0
-			}
 			idset[postinfo[0]] = struct{}{}
-			hashset[ihash] = struct{}{}
+			hashset[postinfo[1]] = struct{}{}
 		}
 	}
 	if config.Verbose {
@@ -125,7 +120,7 @@ func main() {
 	}
 }
 
-func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset map[string]struct{}, hashset map[int64]struct{}, config Conf, botIndex int) {
+func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
 	var subreddit string
 	for i, sub := range config.Bots[botIndex].Reddit.Subs {
 		if i == 0 {
@@ -187,13 +182,13 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n\n")
 			}
 		}
-		runtime.GC()
 		runtime.Gosched()
+		runtime.GC()
 		time.Sleep(waitTime)
 	}
 }
 
-func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[string]struct{}, hashset map[int64]struct{}, verbose bool) (string, string, bool, []byte, string, time.Duration) {
+func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, []byte, string, time.Duration) {
 	finalPostI := 0
 	for i, post := range posts {
 		mutex.RLock()
@@ -239,7 +234,21 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			mutex.Unlock()
 			continue
 		}
-		hash := hashImage(imageData)
+		hashraw, err := goimagehash.PerceptionHash(imageData)
+		if err != nil {
+			if verbose {
+				fmt.Println("Unable to hash image! Error:\n", err)
+			}
+			mutex.Lock()
+			idset[post.ID] = struct{}{}
+			f.WriteString(post.ID + "\n")
+			if verbose {
+				fmt.Println("Skipping post and adding ID to database.\bDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			}
+			mutex.Unlock()
+			continue
+		}
+		hash := hashraw.ToString()
 
 		mutex.RLock()
 		_, ok = hashset[hash]
@@ -264,7 +273,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 		mutex.Lock()
 		idset[post.ID] = struct{}{}
 		hashset[hash] = struct{}{}
-		f.WriteString(post.ID + "," + strconv.FormatInt(hash, 10) + "\n")
+		f.WriteString(post.ID + "," + hash + "\n")
 		if verbose {
 			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
 		}
@@ -309,27 +318,6 @@ func downloadImage(img string, client *http.Client, verbose bool) ([]byte, error
 
 	body, err := ioutil.ReadAll(resp.Body)
 	return body, err
-}
-
-func hashImage(img image.Image) int64 {
-	image9x8 := transform.Resize(img, 9, 8, transform.Lanczos)
-
-	bounds := image9x8.Bounds()
-	hash := ""
-	for x := 0; x < bounds.Max.X; x++ {
-		for y := 0; y < bounds.Max.Y; y++ {
-			if y > 0 {
-				if getBrightness(image9x8.At(x, y)) > getBrightness(image9x8.At(x, y-1)) {
-					hash = hash + "1"
-				} else {
-					hash = hash + "0"
-				}
-			}
-		}
-	}
-
-	hashnum, _ := strconv.ParseInt(hash, 2, 64)
-	return hashnum
 }
 
 func getBrightness(c color.Color) float64 {
