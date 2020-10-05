@@ -370,7 +370,7 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 	sort.Ints(scores)
 	sort.Ints(ages)
 
-	if len(scores) < 10 {
+	if len(scores) < 20 {
 		if verbose {
 			fmt.Println("Analyzed 100 posts from /r/" + subreddit + ". Too few posts were usable for image mirroring.")
 		}
@@ -378,10 +378,10 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 	}
 
 	upvoteRatioTarget := upvoteRatios[((len(upvoteRatios)*1)/10)-1]
-	upvoteRateTarget := upvoteRates[((len(upvoteRates)*25)/100)-1]
-	scoreTarget := scores[((len(scores)*25)/100)-1]
-	ageTargetMin := time.Duration(ages[((len(ages)*1)/10)-1]) * time.Second
-	ageTargetMax := time.Duration(ages[((len(ages)*9)/10)-1]) * time.Second
+	upvoteRateTarget := upvoteRates[((len(upvoteRates)*2)/10)-1]
+	scoreTarget := scores[((len(scores)*2)/10)-1]
+	ageTargetMin := time.Duration(ages[((len(ages)*5)/100)-1]) * time.Second
+	ageTargetMax := time.Duration(ages[((len(ages)*95)/100)-1]) * time.Second
 
 	if verbose {
 		fmt.Println("Analyzed 100 posts from /r/"+subreddit+".", 100-len(scores), "posts were unusable for image mirroring.\nCurrent posting criteria:\n\tMinimum upvotes:", scoreTarget, "\n\tMinimum upvote rate:", upvoteRateTarget, "upvotes/hour\n\tMinimum upvote to downvote ratio:", float32(upvoteRatioTarget)/100, "\n\tAllowed post age range:", ageTargetMin.Round(time.Second), "-", ageTargetMax.Round(time.Second))
