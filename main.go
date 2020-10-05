@@ -286,12 +286,9 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 }
 
 func calculateSleepTime(i int, total int) time.Duration {
-	waitTime := (float32(i) / float32(total)) * 50
+	waitTime := (float32(i) / float32(total)) * 45
 	if waitTime < 5 {
 		waitTime += float32(5 - int(waitTime))
-	}
-	if waitTime > 45 {
-		waitTime -= float32(int(waitTime) - 45)
 	}
 	return time.Duration(waitTime*60000) * time.Millisecond
 }
