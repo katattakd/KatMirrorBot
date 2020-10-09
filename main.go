@@ -365,7 +365,7 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 	upvoteRatioTarget := upvoteRatios[((len(upvoteRatios)*1)/10)-1]
 	upvoteRateTarget := upvoteRates[((len(upvoteRates)*3)/10)-1]
 	scoreTarget := scores[((len(scores)*3)/10)-1]
-	ageTargetMin := time.Duration(ages[((len(ages)*1)/10)-1]) * time.Second
+	ageTargetMin := time.Duration(ages[((len(ages)*2)/10)-1]) * time.Second
 	ageTargetMax := time.Duration(ages[((len(ages)*95)/100)-1]) * time.Second
 
 	if verbose {
