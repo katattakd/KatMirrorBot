@@ -158,13 +158,17 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 			}
 
 			res, resp, err := tclient.Media.Upload(imageData, "image/"+imageType)
-			resp.Body.Close()
+			if resp.Body != nil {
+				resp.Body.Close()
+			}
 			if err == nil && res.MediaID > 0 {
 				tweet, resp, err := tclient.Statuses.Update(postTitle+" https://redd.it/"+postID, &twitter.StatusUpdateParams{
 					MediaIds:          []int64{res.MediaID},
 					PossiblySensitive: &postNSFW,
 				})
-				resp.Body.Close()
+				if resp.Body != nil {
+					resp.Body.Close()
+				}
 				if err == nil {
 					if config.Verbose {
 						fmt.Println("Tweet:\n\t"+tweet.Text, "\n\thttps://twitter.com/"+tweet.User.ScreenName+"/status/"+tweet.IDStr)
@@ -305,13 +309,12 @@ func downloadImage(img string, client *http.Client, verbose bool) ([]byte, error
 		fmt.Println("Downloading image from", img+"...")
 	}
 	resp, err := client.Get(img)
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil || resp.StatusCode >= 400 {
-		if resp.Body != nil {
-			resp.Body.Close()
-		}
 		return []byte{}, err
 	}
-	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	return body, err
@@ -330,9 +333,12 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 	if verbose {
 		fmt.Println("Downloading list of \"hot\" posts on /r/" + subreddit + "...")
 	}
-	posts, _, err := client.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
+	posts, resp, err := client.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
 		Limit: 100,
 	})
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
 	if err != nil {
 		return []*reddit.Post{}, err
 	}
