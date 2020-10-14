@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"io/ioutil"
@@ -194,6 +193,7 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 
 func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, []byte, string, time.Duration) {
 	finalPostI := 0
+	reader := bytes.NewReader([]byte{})
 	for i, post := range posts {
 		mutex.RLock()
 		_, ok := idset[post.ID]
@@ -224,7 +224,8 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			continue
 		}
 
-		imageData, imageType, err := image.Decode(bytes.NewReader(rawImage))
+		reader.Reset(rawImage)
+		imageData, imageType, err := image.Decode(reader)
 		if err != nil {
 			if verbose {
 				fmt.Println("Unable to decode image! Error:\n", err)
@@ -238,6 +239,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			mutex.Unlock()
 			continue
 		}
+		
 		hashraw, err := goimagehash.ExtPerceptionHash(imageData, 16, 16)
 		if err != nil {
 			if verbose {
@@ -318,11 +320,6 @@ func downloadImage(img string, client *http.Client, verbose bool) ([]byte, error
 
 	body, err := ioutil.ReadAll(resp.Body)
 	return body, err
-}
-
-func getBrightness(c color.Color) float64 {
-	r, g, b, _ := c.RGBA()
-	return float64(r)*0.2126 + float64(g)*0.7152 + float64(b)*0.0722
 }
 
 func isImageURL(url string) bool {
