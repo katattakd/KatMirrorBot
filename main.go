@@ -128,6 +128,8 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 		return
 	}
 
+	var buf bytes.Buffer
+
 	oconfig := oauth1.NewConfig(config.Bots[botIndex].Twitter.Conk, config.Bots[botIndex].Twitter.Cons)
 	token := oauth1.NewToken(config.Bots[botIndex].Twitter.Token, config.Bots[botIndex].Twitter.ToknS)
 	tclient := twitter.NewClient(oconfig.Client(oauth1.NoContext, token))
@@ -152,9 +154,7 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Uploading", postID, "to twitter...")
 			}
 
-			var buf bytes.Buffer
 			png.Encode(&buf, imageData)
-
 			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/png")
 			if err == nil {
 				resp.Body.Close()
@@ -175,6 +175,7 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 			} else {
 				fmt.Println("Unable to upload image to Twitter! Error:\n", err)
 			}
+			buf.Reset()
 
 			if config.Verbose {
 				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n\n")
