@@ -28,5 +28,5 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 
 ## Advanced usage
 - If you intend to run more than one mirror bot using the program, it's recommended that you disable verbose output. Console messages from the different bots will interfere with each-other, creating a confusing mess in your terminal.
-- If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 64-bit difference hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
+- If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 256-bit perception hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
 - Cross-compilation should be trivial to do (setting the `GOOS` and `GOARCH` environment variables), due to the lack of C dependencies. For a list of targets supported by the Golang compiler, run `go tool dist list`.
