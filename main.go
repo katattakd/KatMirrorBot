@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -106,17 +106,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(config.Bots) > 1 {
-		for i, _ := range config.Bots {
-			go runBot(client, rclient, rawDB, idset, hashset, config, i)
-		}
-
-		cr := make(chan os.Signal, 1)
-		signal.Notify(cr, syscall.SIGHUP)
-		<-cr
-	} else {
-		runBot(client, rclient, rawDB, idset, hashset, config, 0)
+	for i, _ := range config.Bots {
+		go runBot(client, rclient, rawDB, idset, hashset, config, i)
 	}
+
+	cr := make(chan os.Signal, 1)
+	signal.Notify(cr, syscall.SIGHUP)
+	<-cr
 }
 
 func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
@@ -144,8 +140,8 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 			continue
 		}
 
-		postTitle, postID, postNSFW, imageData, imageType, waitTime := getPost(posts, client, rawDB, idset, hashset, config.Verbose)
-		if len(imageData) == 0 || imageType == "none" {
+		postTitle, postID, postNSFW, imageData, waitTime := getPost(posts, client, rawDB, idset, hashset, config.Verbose)
+		if imageData == nil {
 			if config.Verbose {
 				fmt.Println("Checking for posts again in", waitTime.Round(time.Second).String()+".\n")
 			} else {
@@ -156,19 +152,18 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Uploading", postID, "to twitter...")
 			}
 
-			res, resp, err := tclient.Media.Upload(imageData, "image/"+imageType)
-			if resp.Body != nil {
+			var buf bytes.Buffer
+			png.Encode(&buf, imageData)
+
+			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/png")
+			if err == nil {
 				resp.Body.Close()
-			}
-			if err == nil && res.MediaID > 0 {
 				tweet, resp, err := tclient.Statuses.Update(postTitle+" https://redd.it/"+postID, &twitter.StatusUpdateParams{
 					MediaIds:          []int64{res.MediaID},
 					PossiblySensitive: &postNSFW,
 				})
-				if resp.Body != nil {
-					resp.Body.Close()
-				}
 				if err == nil {
+					resp.Body.Close()
 					if config.Verbose {
 						fmt.Println("Tweet:\n\t"+tweet.Text, "\n\thttps://twitter.com/"+tweet.User.ScreenName+"/status/"+tweet.IDStr)
 					} else {
@@ -185,15 +180,13 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n\n")
 			}
 		}
-		runtime.Gosched()
 		runtime.GC()
 		time.Sleep(waitTime)
 	}
 }
 
-func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, []byte, string, time.Duration) {
+func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, image.Image, time.Duration) {
 	finalPostI := 0
-	reader := bytes.NewReader([]byte{})
 	for i, post := range posts {
 		mutex.RLock()
 		_, ok := idset[post.ID]
@@ -205,12 +198,24 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			fmt.Println("Potentially unique post", post.ID, "found at a post depth of", i, "/", len(posts))
 		}
 
-		rawImage, err := downloadImage(post.URL, client, verbose)
+		img := post.URL
+		if strings.HasPrefix(post.URL, "http://imgur.com/") {
+			img = "https://i.imgur.com/" + strings.TrimPrefix(img, "http://imgur.com/") + ".jpg"
+		}
+		if strings.HasPrefix(post.URL, "https://imgur.com/") {
+			img = "https://i.imgur.com/" + strings.TrimPrefix(img, "https://imgur.com/") + ".jpg"
+		}
+		if verbose {
+			fmt.Println("Downloading image from", img+"...")
+		}
+		resp, err := client.Get(img)
 		if err != nil {
 			fmt.Println("Warn: Unable to download image! Error:\n", err)
 			continue
 		}
-		if len(rawImage) == 0 {
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
 			if verbose {
 				fmt.Println("Unable to download image! Skipping post and adding ID to database.")
 			}
@@ -224,8 +229,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			continue
 		}
 
-		reader.Reset(rawImage)
-		imageData, imageType, err := image.Decode(reader)
+		imageData, imageType, err := image.Decode(resp.Body)
 		if err != nil {
 			if verbose {
 				fmt.Println("Unable to decode image! Error:\n", err)
@@ -239,7 +243,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			mutex.Unlock()
 			continue
 		}
-		
+
 		hashraw, err := goimagehash.ExtPerceptionHash(imageData, 16, 16)
 		if err != nil {
 			if verbose {
@@ -286,9 +290,9 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 		mutex.Unlock()
 		finalPostI = i
 
-		return post.Title, post.ID, post.NSFW || post.Spoiler, rawImage, imageType, calculateSleepTime(finalPostI, len(posts))
+		return post.Title, post.ID, post.NSFW || post.Spoiler, imageData, calculateSleepTime(finalPostI, len(posts))
 	}
-	return "", "", false, []byte{}, "none", 45 * time.Minute
+	return "", "", false, nil, 45 * time.Minute
 }
 
 func calculateSleepTime(i int, total int) time.Duration {
@@ -297,29 +301,6 @@ func calculateSleepTime(i int, total int) time.Duration {
 		waitTime += float32(5 - int(waitTime))
 	}
 	return time.Duration(waitTime*60000) * time.Millisecond
-}
-
-func downloadImage(img string, client *http.Client, verbose bool) ([]byte, error) {
-	if strings.HasPrefix(img, "http://imgur.com/") {
-		img = "https://i.imgur.com/" + strings.TrimPrefix(img, "http://imgur.com/") + ".jpg"
-	}
-	if strings.HasPrefix(img, "https://imgur.com/") {
-		img = "https://i.imgur.com/" + strings.TrimPrefix(img, "https://imgur.com/") + ".jpg"
-	}
-
-	if verbose {
-		fmt.Println("Downloading image from", img+"...")
-	}
-	resp, err := client.Get(img)
-	if resp.Body != nil {
-		defer resp.Body.Close()
-	}
-	if err != nil || resp.StatusCode >= 400 {
-		return []byte{}, err
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	return body, err
 }
 
 func isImageURL(url string) bool {
@@ -333,10 +314,9 @@ func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.
 	posts, resp, err := client.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
 		Limit: 100,
 	})
-	if resp.Body != nil {
+	if err == nil {
 		resp.Body.Close()
-	}
-	if err != nil {
+	} else {
 		return []*reddit.Post{}, err
 	}
 
