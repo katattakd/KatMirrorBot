@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	_ "image/jpeg"
-	"image/png"
+	"image/jpeg"
+	_ "image/png"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/corona10/goimagehash"
@@ -28,8 +27,10 @@ import (
 )
 
 var (
-	ctx   = context.Background()
-	mutex sync.RWMutex
+	ctx     = context.Background()
+	mutex   sync.RWMutex
+	gcmutex sync.RWMutex
+	needsGC bool
 )
 
 type Conf struct {
@@ -89,10 +90,10 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[string]s
 }
 
 func main() {
-	debug.SetGCPercent(15)
 	idset, hashset, config, rawDB := loadDB("conf.json", "posts.csv")
-	defer rawDB.Close()
 	runtime.GOMAXPROCS((len(config.Bots) / 8) + 1)
+	debug.SetGCPercent(((len(config.Bots) / 8) + 1) * 100)
+	debug.SetMaxStack(50000000)
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -100,22 +101,41 @@ func main() {
 		},
 		Timeout: 30 * time.Second,
 	}
-	rclient, err := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
-	if err != nil {
-		fmt.Println("Unable to create Reddit client! Error:\n", err)
-		os.Exit(1)
-	}
 
 	for i, _ := range config.Bots {
-		go runBot(client, rclient, rawDB, idset, hashset, config, i)
+		go runBot(client, rawDB, idset, hashset, config, i)
 	}
 
+	go func() {
+		for {
+			if needsGC {
+				gcmutex.Lock()
+				if config.Verbose {
+					fmt.Println("Freeing unused memory...")
+				}
+				client.CloseIdleConnections()
+				debug.FreeOSMemory()
+				needsGC = false
+				gcmutex.Unlock()
+			}
+			time.Sleep(1 * time.Minute)
+		}
+	}()
+
 	cr := make(chan os.Signal, 1)
-	signal.Notify(cr, syscall.SIGHUP)
+	signal.Notify(cr, os.Interrupt, os.Kill)
 	<-cr
+	if config.Verbose {
+		fmt.Println("Shutting down...")
+	}
+	if needsGC {
+		gcmutex.Lock()
+		gcmutex.Unlock()
+	}
+	rawDB.Close()
 }
 
-func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
+func runBot(client *http.Client, rawDB *os.File, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
 	var subreddit string
 	for i, sub := range config.Bots[botIndex].Reddit.Subs {
 		if i == 0 {
@@ -128,16 +148,22 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 		return
 	}
 
-	var buf bytes.Buffer
-
-	oconfig := oauth1.NewConfig(config.Bots[botIndex].Twitter.Conk, config.Bots[botIndex].Twitter.Cons)
-	token := oauth1.NewToken(config.Bots[botIndex].Twitter.Token, config.Bots[botIndex].Twitter.ToknS)
-	tclient := twitter.NewClient(oconfig.Client(oauth1.NoContext, token))
-
 	for {
+		gcmutex.RLock()
+		needsGC = true
+
+		rclient, err := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
+		if err != nil {
+			fmt.Println("Unable to create Reddit client! Error:\n", err)
+			gcmutex.RUnlock()
+			time.Sleep(1 * time.Minute)
+			continue
+		}
+
 		posts, err := getPosts(rclient, subreddit, config.Verbose)
 		if err != nil {
 			fmt.Println("Unable to connect to Reddit! Error:\n", err)
+			gcmutex.RUnlock()
 			time.Sleep(1 * time.Minute)
 			continue
 		}
@@ -154,8 +180,18 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 				fmt.Println("Uploading", postID, "to twitter...")
 			}
 
-			png.Encode(&buf, imageData)
-			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/png")
+			var buf bytes.Buffer
+			jpeg.Encode(&buf, imageData, &jpeg.Options{
+				Quality: 90,
+			})
+
+			oconfig := oauth1.NewConfig(config.Bots[botIndex].Twitter.Conk, config.Bots[botIndex].Twitter.Cons)
+			token := oauth1.NewToken(config.Bots[botIndex].Twitter.Token, config.Bots[botIndex].Twitter.ToknS)
+			thclient := oconfig.Client(oauth1.NoContext, token)
+			thclient.Timeout = 30 * time.Second
+			tclient := twitter.NewClient(thclient)
+
+			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/jpeg")
 			if err == nil {
 				resp.Body.Close()
 				tweet, resp, err := tclient.Statuses.Update(postTitle+" https://redd.it/"+postID, &twitter.StatusUpdateParams{
@@ -171,17 +207,26 @@ func runBot(client *http.Client, rclient *reddit.Client, rawDB *os.File, idset m
 					}
 				} else {
 					fmt.Println("Unable to create Tweet! Error:\n", err)
+					if resp.Body != nil {
+						resp.Body.Close()
+					}
 				}
 			} else {
 				fmt.Println("Unable to upload image to Twitter! Error:\n", err)
+				if resp.Body != nil {
+					resp.Body.Close()
+				}
 			}
 			buf.Reset()
+			thclient.CloseIdleConnections()
 
 			if config.Verbose {
 				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n\n")
 			}
 		}
-		runtime.GC()
+
+		gcmutex.RUnlock()
+		runtime.Gosched()
 		time.Sleep(waitTime)
 	}
 }
@@ -214,9 +259,9 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			fmt.Println("Warn: Unable to download image! Error:\n", err)
 			continue
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode >= 400 {
+			resp.Body.Close()
 			if verbose {
 				fmt.Println("Unable to download image! Skipping post and adding ID to database.")
 			}
@@ -231,6 +276,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 		}
 
 		imageData, imageType, err := image.Decode(resp.Body)
+		resp.Body.Close()
 		if err != nil {
 			if verbose {
 				fmt.Println("Unable to decode image! Error:\n", err)
