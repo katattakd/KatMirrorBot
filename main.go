@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -91,6 +92,8 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[string]s
 
 func main() {
 	idset, hashset, config, rawDB := loadDB("conf.json", "posts.csv")
+	dbWriter := bufio.NewWriter(rawDB)
+
 	runtime.GOMAXPROCS((len(config.Bots) / 8) + 1)
 	debug.SetGCPercent(((len(config.Bots) / 8) + 1) * 100)
 	debug.SetMaxStack(50000000)
@@ -103,7 +106,7 @@ func main() {
 	}
 
 	for i, _ := range config.Bots {
-		go runBot(client, rawDB, idset, hashset, config, i)
+		go runBot(client, dbWriter, idset, hashset, config, i)
 	}
 
 	go func() {
@@ -111,8 +114,9 @@ func main() {
 			if needsGC {
 				gcmutex.Lock()
 				if config.Verbose {
-					fmt.Println("Freeing unused memory...")
+					fmt.Println("Syncing database and freeing unused resources...")
 				}
+				dbWriter.Flush()
 				client.CloseIdleConnections()
 				debug.FreeOSMemory()
 				needsGC = false
@@ -132,10 +136,11 @@ func main() {
 		gcmutex.Lock()
 		gcmutex.Unlock()
 	}
+	dbWriter.Flush()
 	rawDB.Close()
 }
 
-func runBot(client *http.Client, rawDB *os.File, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
+func runBot(client *http.Client, dbWriter *bufio.Writer, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
 	var subreddit string
 	for i, sub := range config.Bots[botIndex].Reddit.Subs {
 		if i == 0 {
@@ -148,17 +153,23 @@ func runBot(client *http.Client, rawDB *os.File, idset map[string]struct{}, hash
 		return
 	}
 
+	rclient, err := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
+	if err != nil {
+		fmt.Println("Unable to create Reddit client! Error:\n", err)
+		return
+	}
+
+	oconfig := oauth1.NewConfig(config.Bots[botIndex].Twitter.Conk, config.Bots[botIndex].Twitter.Cons)
+	token := oauth1.NewToken(config.Bots[botIndex].Twitter.Token, config.Bots[botIndex].Twitter.ToknS)
+	thclient := oconfig.Client(oauth1.NoContext, token)
+	thclient.Timeout = 30 * time.Second
+	tclient := twitter.NewClient(thclient)
+
+	var buf bytes.Buffer
+
 	for {
 		gcmutex.RLock()
 		needsGC = true
-
-		rclient, err := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
-		if err != nil {
-			fmt.Println("Unable to create Reddit client! Error:\n", err)
-			gcmutex.RUnlock()
-			time.Sleep(1 * time.Minute)
-			continue
-		}
 
 		posts, err := getPosts(rclient, subreddit, config.Verbose)
 		if err != nil {
@@ -168,7 +179,7 @@ func runBot(client *http.Client, rawDB *os.File, idset map[string]struct{}, hash
 			continue
 		}
 
-		postTitle, postID, postNSFW, imageData, waitTime := getPost(posts, client, rawDB, idset, hashset, config.Verbose)
+		postTitle, postID, postNSFW, imageData, waitTime := getPost(posts, client, dbWriter, idset, hashset, config.Verbose)
 		if imageData == nil {
 			if config.Verbose {
 				fmt.Println("Checking for posts again in", waitTime.Round(time.Second).String()+".\n")
@@ -180,16 +191,9 @@ func runBot(client *http.Client, rawDB *os.File, idset map[string]struct{}, hash
 				fmt.Println("Uploading", postID, "to twitter...")
 			}
 
-			var buf bytes.Buffer
 			jpeg.Encode(&buf, imageData, &jpeg.Options{
 				Quality: 90,
 			})
-
-			oconfig := oauth1.NewConfig(config.Bots[botIndex].Twitter.Conk, config.Bots[botIndex].Twitter.Cons)
-			token := oauth1.NewToken(config.Bots[botIndex].Twitter.Token, config.Bots[botIndex].Twitter.ToknS)
-			thclient := oconfig.Client(oauth1.NoContext, token)
-			thclient.Timeout = 30 * time.Second
-			tclient := twitter.NewClient(thclient)
 
 			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/jpeg")
 			if err == nil {
@@ -231,7 +235,7 @@ func runBot(client *http.Client, rawDB *os.File, idset map[string]struct{}, hash
 	}
 }
 
-func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, image.Image, time.Duration) {
+func getPost(posts []*reddit.Post, client *http.Client, f *bufio.Writer, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, image.Image, time.Duration) {
 	finalPostI := 0
 	for i, post := range posts {
 		mutex.RLock()
@@ -275,6 +279,9 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 			continue
 		}
 
+		if verbose {
+			fmt.Println("Decoding and hashing", path.Base(img)+"...")
+		}
 		imageData, imageType, err := image.Decode(resp.Body)
 		resp.Body.Close()
 		if err != nil {
@@ -325,7 +332,7 @@ func getPost(posts []*reddit.Post, client *http.Client, f *os.File, idset map[st
 		}
 
 		if verbose {
-			fmt.Println("Image (type: " + imageType + ") is valid, adding ID and hash to database...")
+			fmt.Println("Image (type: " + imageType + ") is unique, adding ID and hash to database...")
 		}
 		mutex.Lock()
 		idset[post.ID] = struct{}{}
