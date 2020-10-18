@@ -4,13 +4,14 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 ## Features
 - Simple configuration, with support for multiple subreddits and multiple accounts.
 - Easily recovers from crashes, without leaving behind temporary files.
+- Graceful shutdown allows the bot to finish sending in-progress posts before stopping.
 - Has both an easy to read verbose log format, or a minimal quiet log format.
 - Human-readable and easily editable data storage format, backwards-compatible with [Tootgo](https://github.com/katattakd/Tootgo).
 - Fast in-RAM data storage, with extremely quick post lookups and very little disk load.
 - Automatically detects the best "hot" posts to mirror, based on various metrics like upvotes, upvote rate, upvote:downvote ratio, and post age.
 - Automatic post criteria detection based on other subreddit posts.
 - Detects and prevents "reposts" (duplicate images) from being uploaded to the bot account.
-- Detects and prevents corrupted images from being uploaded.
+- Automatically fixes corrupted images, and discards those that can't be fixed.
 - Automatic post interval detection based on post depth and subreddit activity.
 - Written in pure Golang with no C dependencies, to allow for easy cross-compilation.
 
