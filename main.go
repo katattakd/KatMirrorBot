@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	_ "golang.org/x/image/webp"
 	"image"
 	"image/jpeg"
 	_ "image/png"
@@ -99,11 +100,9 @@ func main() {
 	debug.SetMaxStack(50000000)
 
 	client := &http.Client{
-		Transport: &http.Transport{
-			IdleConnTimeout: 1 * time.Hour,
-		},
 		Timeout: 30 * time.Second,
 	}
+	http.DefaultClient.Timeout = 30 * time.Second // Just in-case
 
 	for i, _ := range config.Bots {
 		go runBot(client, dbWriter, idset, hashset, config, i)
@@ -118,6 +117,7 @@ func main() {
 				}
 				dbWriter.Flush()
 				client.CloseIdleConnections()
+				http.DefaultClient.CloseIdleConnections() // In case any libraries are using the default http client
 				debug.FreeOSMemory()
 				needsGC = false
 				gcmutex.Unlock()
@@ -192,7 +192,7 @@ func runBot(client *http.Client, dbWriter *bufio.Writer, idset map[string]struct
 			}
 
 			jpeg.Encode(&buf, imageData, &jpeg.Options{
-				Quality: 90,
+				Quality: 100,
 			})
 
 			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/jpeg")
