@@ -3,7 +3,7 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 
 ## Features
 - Extremely simple configuration.
-- Only runs during posting, 
+- Only runs during posting, freeing up idle memory usage for other programs.
 - Easily recovers from crashes and network errors, without leaving behind temporary files.
 - Human-readable and easily editable data storage format, backwards-compatible with [Tootgo](https://github.com/katattakd/Tootgo).
 - Automatically detects the best "hot" posts to mirror, based on various metrics like upvotes, upvote rate, upvote:downvote ratio, and post age.
