@@ -34,7 +34,7 @@ type Conf struct {
 	} `json:"twitter"`
 	Reddit struct {
 		Subs []string `json:"subreddits"`
-		Dept uint `json:"analysisdepth"`
+		Dept uint     `json:"analysisdepth"`
 	} `json:"reddit"`
 	DBFile string `json:"postdb"`
 }
@@ -189,7 +189,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 	if len(posts) > postLimit {
 		fmt.Println("Limiting search depth to", postLimit, "posts.")
 	} else {
-		postLimit = len(posts)	
+		postLimit = len(posts)
 	}
 	for i, post := range posts {
 		if i > postLimit {
