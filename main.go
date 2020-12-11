@@ -34,6 +34,7 @@ type Conf struct {
 	} `json:"twitter"`
 	Reddit struct {
 		Subs []string `json:"subreddits"`
+		Dept uint `json:"analysisdepth"`
 	} `json:"reddit"`
 	DBFile string `json:"postdb"`
 }
@@ -99,7 +100,7 @@ func getRedditPosts(config Conf) []*reddit.Post {
 
 	fmt.Println("Downloading list of \"hot\" posts on /r/" + subreddit + "...")
 	posts, resp, err := rclient.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
-		Limit: 100,
+		Limit: config.Reddit.Dept,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Fatal: Unable to download post list! Error:\n", err)

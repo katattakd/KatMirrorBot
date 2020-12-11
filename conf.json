@@ -6,7 +6,8 @@
 		"tokensecret": "Access token secret"
 	},
 	"reddit": {
-		"subreddits": ["all", "popular"]
+		"subreddits": ["all", "popular"],
+		"analysisdepth": 50,
 	},
 	"postdb": "posts.csv"
 }

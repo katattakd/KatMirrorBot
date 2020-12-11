@@ -35,6 +35,7 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 This allows the bot to adapt it's posting interval and post depth as necessary, and prevents the bot from running twice.
 
 ## Advanced usage
+- `config.reddit.analysisdepth` changes how many posts are downloaded and analyzed. A lower number makes the bot more strict with what posts it accepts, however, a very low analysis depth can cause issues. Should be between 20-100 posts. 
 - If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 256-bit perception hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
 - Cross-compilation should be trivial to do (setting the `GOOS` and `GOARCH` environment variables), due to the lack of C dependencies. For a list of targets supported by the Golang compiler, run `go tool dist list`.
 - The arguments KatMirrorBot accepts are a config file and a post depth limit. If omitted, the config file defaults to `conf.json`, and the depth limit defaults to 50.
