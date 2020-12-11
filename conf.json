@@ -1,16 +1,12 @@
 {
-	"bots": [
-		{
-			"twitter": {
-				"key": "API key",
-				"keysecret": "API secret key",
-				"token": "Access token",
-				"tokensecret": "Access token secret"
-			},
-			"reddit": {
-				"subreddits": ["all", "popular"]
-			}
-		}
-	],
-	"verbose": true
+	"twitter": {
+		"key": "API key",
+		"keysecret": "API secret key",
+		"token": "Access token",
+		"tokensecret": "Access token secret"
+	},
+	"reddit": {
+		"subreddits": ["all", "popular"]
+	},
+	"postdb": "posts.csv"
 }
