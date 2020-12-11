@@ -13,13 +13,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/signal"
+	//"os/signal"
 	"path"
-	"runtime"
-	"runtime/debug"
+	//"runtime"
+	//"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
-	"sync"
+	//"sync"
 	"time"
 
 	"github.com/corona10/goimagehash"
@@ -28,48 +29,39 @@ import (
 	"github.com/vartanbeno/go-reddit/reddit"
 )
 
-var (
-	ctx     = context.Background()
-	mutex   sync.RWMutex
-	gcmutex sync.RWMutex
-	needsGC bool
-)
-
 type Conf struct {
-	Bots []struct {
-		Twitter struct {
-			Token string `json:"token"`
-			ToknS string `json:"tokensecret"`
-			Conk  string `json:"key"`
-			Cons  string `json:"keysecret"`
-		} `json:"twitter"`
-		Reddit struct {
-			Subs []string `json:"subreddits"`
-		} `json:"reddit"`
-	} `json:"bots"`
-	Verbose bool `json:"verbose"`
+	Twitter struct {
+		Token string `json:"token"`
+		ToknS string `json:"tokensecret"`
+		Conk  string `json:"key"`
+		Cons  string `json:"keysecret"`
+	} `json:"twitter"`
+	Reddit struct {
+		Subs []string `json:"subreddits"`
+	} `json:"reddit"`
+	DBFile string `json:"postdb"`
 }
 
-func loadDB(configFile string, dBfile string) (map[string]struct{}, map[string]struct{}, Conf, *os.File) {
-	fmt.Println("Loading data...")
+var ctx = context.Background()
+
+func loadData(configFile string) (map[string]struct{}, map[string]struct{}, Conf, *os.File) {
+	fmt.Println("Loading " + configFile + "...")
 
 	var config Conf
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		fmt.Println("Unable to read config file! Error:\n", err)
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to read config file! Error:\n", err)
 		os.Exit(1)
 	}
 	if json.Unmarshal(data, &config) != nil {
-		fmt.Println("Unable to parse config file! Error:\n", err)
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to parse config file! Error:\n", err)
 		os.Exit(1)
 	}
-	if config.Verbose {
-		fmt.Println("Config file loaded. Loading database...")
-	}
+	fmt.Println("Program configuration loaded. Loading " + config.DBFile + "...")
 
-	f, err := os.OpenFile(dBfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(config.DBFile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
-		fmt.Println("Unable to open database file! Error:\n", err)
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to open database file! Error:\n", err)
 		os.Exit(1)
 	}
 
@@ -85,64 +77,13 @@ func loadDB(configFile string, dBfile string) (map[string]struct{}, map[string]s
 			hashset[postinfo[1]] = struct{}{}
 		}
 	}
-	if config.Verbose {
-		fmt.Println(len(idset), "post IDs loaded into memory,", len(hashset), "image hashes loaded into memory.\n\n")
-	}
+	fmt.Println(len(idset), "post IDs loaded into memory,", len(hashset), "image hashes loaded into memory.\n\n")
 	return idset, hashset, config, f
 }
 
-func main() {
-	idset, hashset, config, rawDB := loadDB("conf.json", "posts.csv")
-	dbWriter := bufio.NewWriter(rawDB)
-
-	runtime.GOMAXPROCS((len(config.Bots) / 8) + 1)
-	debug.SetGCPercent(((len(config.Bots) / 8) + 1) * 100)
-	debug.SetMaxStack(50000000)
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	http.DefaultClient.Timeout = 30 * time.Second // Just in-case
-
-	for i, _ := range config.Bots {
-		go runBot(client, dbWriter, idset, hashset, config, i)
-	}
-
-	go func() {
-		for {
-			if needsGC {
-				gcmutex.Lock()
-				if config.Verbose {
-					fmt.Println("Syncing database and freeing unused resources...")
-				}
-				dbWriter.Flush()
-				client.CloseIdleConnections()
-				http.DefaultClient.CloseIdleConnections() // In case any libraries are using the default http client
-				debug.FreeOSMemory()
-				needsGC = false
-				gcmutex.Unlock()
-			}
-			time.Sleep(1 * time.Minute)
-		}
-	}()
-
-	cr := make(chan os.Signal, 1)
-	signal.Notify(cr, os.Interrupt, os.Kill)
-	<-cr
-	if config.Verbose {
-		fmt.Println("Shutting down...")
-	}
-	if needsGC {
-		gcmutex.Lock()
-		gcmutex.Unlock()
-	}
-	dbWriter.Flush()
-	rawDB.Close()
-}
-
-func runBot(client *http.Client, dbWriter *bufio.Writer, idset map[string]struct{}, hashset map[string]struct{}, config Conf, botIndex int) {
+func getRedditPosts(config Conf, postLimit int) []*reddit.Post {
 	var subreddit string
-	for i, sub := range config.Bots[botIndex].Reddit.Subs {
+	for i, sub := range config.Reddit.Subs {
 		if i == 0 {
 			subreddit = sub
 		} else if sub != "" {
@@ -150,275 +91,245 @@ func runBot(client *http.Client, dbWriter *bufio.Writer, idset map[string]struct
 		}
 	}
 	if len(subreddit) == 0 {
-		return
+		fmt.Fprintln(os.Stderr, "Fatal: config.reddit.subreddits must have a length greater than zero!")
+		os.Exit(1)
 	}
 
-	rclient, err := reddit.NewReadonlyClient(reddit.WithHTTPClient(client))
+	rclient, err := reddit.NewReadonlyClient()
 	if err != nil {
-		fmt.Println("Unable to create Reddit client! Error:\n", err)
-		return
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to create Reddit client! Error:\n", err)
+		os.Exit(1)
 	}
 
-	oconfig := oauth1.NewConfig(config.Bots[botIndex].Twitter.Conk, config.Bots[botIndex].Twitter.Cons)
-	token := oauth1.NewToken(config.Bots[botIndex].Twitter.Token, config.Bots[botIndex].Twitter.ToknS)
-	thclient := oconfig.Client(oauth1.NoContext, token)
-	thclient.Timeout = 30 * time.Second
-	tclient := twitter.NewClient(thclient)
-
-	var buf bytes.Buffer
-
-	for {
-		gcmutex.RLock()
-		needsGC = true
-
-		posts, err := getPosts(rclient, subreddit, config.Verbose)
-		if err != nil {
-			fmt.Println("Unable to connect to Reddit! Error:\n", err)
-			gcmutex.RUnlock()
-			time.Sleep(1 * time.Minute)
-			continue
-		}
-
-		postTitle, postID, postNSFW, imageData, waitTime := getPost(posts, client, dbWriter, idset, hashset, config.Verbose)
-		if imageData == nil {
-			if config.Verbose {
-				fmt.Println("Checking for posts again in", waitTime.Round(time.Second).String()+".\n")
-			} else {
-				fmt.Println("No usable posts from /r/" + subreddit + ".")
-			}
-		} else {
-			if config.Verbose {
-				fmt.Println("Uploading", postID, "to twitter...")
-			}
-
-			jpeg.Encode(&buf, imageData, &jpeg.Options{
-				Quality: 100,
-			})
-
-			res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/jpeg")
-			if err == nil {
-				resp.Body.Close()
-				tweet, resp, err := tclient.Statuses.Update(postTitle+" https://redd.it/"+postID, &twitter.StatusUpdateParams{
-					MediaIds:          []int64{res.MediaID},
-					PossiblySensitive: &postNSFW,
-				})
-				if err == nil {
-					resp.Body.Close()
-					if config.Verbose {
-						fmt.Println("Tweet:\n\t"+tweet.Text, "\n\thttps://twitter.com/"+tweet.User.ScreenName+"/status/"+tweet.IDStr)
-					} else {
-						fmt.Println(tweet.Text, "(https://twitter.com/"+tweet.User.ScreenName+"/status/"+tweet.IDStr+")")
-					}
-				} else {
-					fmt.Println("Unable to create Tweet! Error:\n", err)
-					if resp.Body != nil {
-						resp.Body.Close()
-					}
-				}
-			} else {
-				fmt.Println("Unable to upload image to Twitter! Error:\n", err)
-				if resp.Body != nil {
-					resp.Body.Close()
-				}
-			}
-			buf.Reset()
-			thclient.CloseIdleConnections()
-
-			if config.Verbose {
-				fmt.Println("Next post in", waitTime.Round(time.Second).String()+".\n\n")
-			}
-		}
-
-		gcmutex.RUnlock()
-		runtime.Gosched()
-		time.Sleep(waitTime)
+	fmt.Println("Downloading list of \"hot\" posts on /r/" + subreddit + "...")
+	posts, resp, err := rclient.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
+		Limit: postLimit,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to download post list! Error:\n", err)
+		os.Exit(1)
 	}
-}
 
-func getPost(posts []*reddit.Post, client *http.Client, f *bufio.Writer, idset map[string]struct{}, hashset map[string]struct{}, verbose bool) (string, string, bool, image.Image, time.Duration) {
-	finalPostI := 0
-	for i, post := range posts {
-		mutex.RLock()
-		_, ok := idset[post.ID]
-		mutex.RUnlock()
-		if ok {
-			continue
-		}
-		if verbose {
-			fmt.Println("Potentially unique post", post.ID, "found at a post depth of", i, "/", len(posts))
-		}
-
-		img := post.URL
-		if strings.HasPrefix(post.URL, "http://imgur.com/") {
-			img = "https://i.imgur.com/" + strings.TrimPrefix(img, "http://imgur.com/") + ".jpg"
-		}
-		if strings.HasPrefix(post.URL, "https://imgur.com/") {
-			img = "https://i.imgur.com/" + strings.TrimPrefix(img, "https://imgur.com/") + ".jpg"
-		}
-		if verbose {
-			fmt.Println("Downloading image from", img+"...")
-		}
-		resp, err := client.Get(img)
-		if err != nil {
-			fmt.Println("Warn: Unable to download image! Error:\n", err)
-			continue
-		}
-
-		if resp.StatusCode >= 400 {
-			resp.Body.Close()
-			if verbose {
-				fmt.Println("Unable to download image! Skipping post and adding ID to database.")
-			}
-			mutex.Lock()
-			idset[post.ID] = struct{}{}
-			f.WriteString(post.ID + "\n")
-			if verbose {
-				fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
-			}
-			mutex.Unlock()
-			continue
-		}
-
-		if verbose {
-			fmt.Println("Decoding and hashing", path.Base(img)+"...")
-		}
-		imageData, imageType, err := image.Decode(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			if verbose {
-				fmt.Println("Unable to decode image! Error:\n", err)
-			}
-			mutex.Lock()
-			idset[post.ID] = struct{}{}
-			f.WriteString(post.ID + "\n")
-			if verbose {
-				fmt.Println("Skipping post and adding ID to database.\bDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
-			}
-			mutex.Unlock()
-			continue
-		}
-
-		hashraw, err := goimagehash.ExtPerceptionHash(imageData, 16, 16)
-		if err != nil {
-			if verbose {
-				fmt.Println("Unable to hash image! Error:\n", err)
-			}
-			mutex.Lock()
-			idset[post.ID] = struct{}{}
-			f.WriteString(post.ID + "\n")
-			if verbose {
-				fmt.Println("Skipping post and adding ID to database.\bDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
-			}
-			mutex.Unlock()
-			continue
-		}
-		hash := hashraw.ToString()
-
-		mutex.RLock()
-		_, ok = hashset[hash]
-		mutex.RUnlock()
-		if ok {
-			if verbose {
-				fmt.Println("Duplicate image detected, skipping post and adding ID to database.")
-			}
-			mutex.Lock()
-			idset[post.ID] = struct{}{}
-			f.WriteString(post.ID + "\n")
-			if verbose {
-				fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
-			}
-			mutex.Unlock()
-			continue
-		}
-
-		if verbose {
-			fmt.Println("Image (type: " + imageType + ") is unique, adding ID and hash to database...")
-		}
-		mutex.Lock()
-		idset[post.ID] = struct{}{}
-		hashset[hash] = struct{}{}
-		f.WriteString(post.ID + "," + hash + "\n")
-		if verbose {
-			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
-		}
-		mutex.Unlock()
-		finalPostI = i
-
-		return post.Title, post.ID, post.NSFW || post.Spoiler, imageData, calculateSleepTime(finalPostI, len(posts))
-	}
-	return "", "", false, nil, 45 * time.Minute
-}
-
-func calculateSleepTime(i int, total int) time.Duration {
-	waitTime := (float32(i) / float32(total)) * 45
-	if waitTime < 5 {
-		waitTime += float32(5 - int(waitTime))
-	}
-	return time.Duration(waitTime*60000) * time.Millisecond
+	resp.Body.Close()
+	return posts
 }
 
 func isImageURL(url string) bool {
 	return strings.HasSuffix(url, ".png") || strings.HasSuffix(url, ".jpg") || strings.HasPrefix(url, "https://imgur.com/") || strings.HasPrefix(url, "http://imgur.com/")
 }
 
-func getPosts(client *reddit.Client, subreddit string, verbose bool) ([]*reddit.Post, error) {
-	if verbose {
-		fmt.Println("Downloading list of \"hot\" posts on /r/" + subreddit + "...")
-	}
-	posts, resp, err := client.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
-		Limit: 100,
-	})
-	if err == nil {
-		resp.Body.Close()
-	} else {
-		return []*reddit.Post{}, err
-	}
+func filterRedditPosts(posts []*reddit.Post) []*reddit.Post {
+	fmt.Println("Downloaded", len(posts), "posts. Analyzing and filtering posts...")
 
-	var upvoteRatios []int
-	var upvoteRates []int
-	var scores []int
-	var ages []int
+	var upvoteRatios, upvoteRates, scores, ages []int
 	for _, post := range posts {
-		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 { // None of these are very useful to an image mirroring bot.
+		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 {
+			// None of these are very useful to an image mirroring bot.
 			continue
 		}
+
 		upvoteRatios = append(upvoteRatios, int(post.UpvoteRatio*100))
 		upvoteRates = append(upvoteRates, int(float64(post.Score)/time.Since(post.Created.Time).Hours()))
 		scores = append(scores, post.Score)
 		ages = append(ages, int(time.Now().UTC().Sub(post.Created.Time.UTC()).Seconds()))
 	}
+
 	sort.Ints(upvoteRatios)
 	sort.Ints(upvoteRates)
 	sort.Ints(scores)
 	sort.Ints(ages)
 
-	if len(scores) < 20 {
-		if verbose {
-			fmt.Println("Analyzed 100 posts from /r/" + subreddit + ". Too few posts were usable for image mirroring.")
-		}
-		return []*reddit.Post{}, nil
+	upvoteRatioTarget, upvoteRateTarget, scoreTarget, ageTargetMin := 0, 0, 0, time.Duration(0)
+
+	if len(scores) > 4 {
+		scoreTarget = scores[(len(scores)/3)-1]
+		upvoteRateTarget = upvoteRates[(len(upvoteRates)/3)-1]
+		fmt.Println(len(scores), "posts were usable for image mirroring.\nCurrent posting criteria:\n\tMinimum upvotes:", scoreTarget, "\n\tMinimum upvote rate:", upvoteRateTarget, "upvotes/hour")
 	}
-
-	upvoteRatioTarget := upvoteRatios[((len(upvoteRatios)*1)/10)-1]
-	upvoteRateTarget := upvoteRates[((len(upvoteRates)*3)/10)-1]
-	scoreTarget := scores[((len(scores)*3)/10)-1]
-	ageTargetMin := time.Duration(ages[((len(ages)*2)/10)-1]) * time.Second
-	ageTargetMax := time.Duration(ages[((len(ages)*95)/100)-1]) * time.Second
-
-	if verbose {
-		fmt.Println("Analyzed 100 posts from /r/"+subreddit+".", 100-len(scores), "posts were unusable for image mirroring.\nCurrent posting criteria:\n\tMinimum upvotes:", scoreTarget, "\n\tMinimum upvote rate:", upvoteRateTarget, "upvotes/hour\n\tMinimum upvote to downvote ratio:", float32(upvoteRatioTarget)/100, "\n\tAllowed post age range:", ageTargetMin.Round(time.Second), "-", ageTargetMax.Round(time.Second))
+	if len(scores) > 10 {
+		upvoteRatioTarget = upvoteRatios[(len(upvoteRatios)/10)-1]
+		fmt.Println("\tMinimum upvote to downvote ratio:", float32(upvoteRatioTarget)/100)
+	}
+	if len(scores) > 6 {
+		ageTargetMin = time.Duration(ages[(len(ages)/5)-1]) * time.Second
+		fmt.Println("\tMinimum post age:", ageTargetMin.Round(time.Second))
 	}
 
 	var goodPosts []*reddit.Post
 	for _, post := range posts {
-		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 || int(post.UpvoteRatio*100) < upvoteRatioTarget || post.Score < scoreTarget || float64(post.Score)/time.Since(post.Created.Time).Hours() < float64(upvoteRateTarget) || time.Now().UTC().Sub(post.Created.Time.UTC()) > ageTargetMax || time.Now().UTC().Sub(post.Created.Time.UTC()) < ageTargetMin {
+		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 || int(post.UpvoteRatio*100) < upvoteRatioTarget || post.Score < scoreTarget || float64(post.Score)/time.Since(post.Created.Time).Hours() < float64(upvoteRateTarget) || time.Now().UTC().Sub(post.Created.Time.UTC()) < ageTargetMin {
 			continue
 		}
 		goodPosts = append(goodPosts, post)
 	}
-	if verbose {
-		fmt.Println(len(goodPosts), "/", len(scores), "posts met the automatically selected posting critera.\n")
+	if len(scores) > 4 {
+		fmt.Println(len(goodPosts), "/", len(scores), "posts met the automatically selected posting critera.")
+	} else if len(scores) == 0 {
+		fmt.Fprintln(os.Stderr, "Warn: No posts were usable for image mirroring.")
+		os.Exit(0)
+	} else {
+		fmt.Println(len(goodPosts), "posts were useable for image mirroring.")
 	}
 
-	return goodPosts, nil
+	return goodPosts
+}
+
+func downloadImageURL(url string) (*http.Response, string, error) {
+	if strings.HasPrefix(url, "http://imgur.com/") {
+		url = "https://i.imgur.com/" + strings.TrimPrefix(url, "http://imgur.com/") + ".jpg"
+	}
+	if strings.HasPrefix(url, "https://imgur.com/") {
+		url = "https://i.imgur.com/" + strings.TrimPrefix(url, "https://imgur.com/") + ".jpg"
+	}
+
+	fmt.Println("Downloading image from", url+"...")
+	resp, err := http.DefaultClient.Get(url)
+
+	return resp, url, err
+}
+
+func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]struct{}, hashset map[string]struct{}) (*reddit.Post, image.Image, string) {
+	for i, post := range posts {
+		_, ok := idset[post.ID]
+		if ok {
+			continue
+		}
+
+		fmt.Println("\nPotentially unique post", post.ID, "found at a post depth of", i, "/", len(posts))
+
+		resp, url, err := downloadImageURL(post.URL)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warn: Unable to download image! Error:\n", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			fmt.Println("Unable to download " + path.Base(url) + "! Skipping post and adding ID to database.")
+
+			idset[post.ID] = struct{}{}
+			f.WriteString(post.ID + "\n")
+
+			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			continue
+		}
+
+		fmt.Println("Decoding and hashing", path.Base(url)+"...")
+
+		imageData, imageType, err := image.Decode(resp.Body)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warn: Unable to decode image! Error:\n", err)
+
+			idset[post.ID] = struct{}{}
+			f.WriteString(post.ID + "\n")
+
+			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			continue
+		}
+
+		hashraw, err := goimagehash.ExtPerceptionHash(imageData, 16, 16)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warn: Unable to hash image! Error:\n", err)
+
+			idset[post.ID] = struct{}{}
+			f.WriteString(post.ID + "\n")
+
+			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			continue
+		}
+		hash := hashraw.ToString()
+
+		_, ok = hashset[hash]
+		if ok {
+			fmt.Println("Duplicate image detected, skipping post and adding ID to database.")
+
+			idset[post.ID] = struct{}{}
+			f.WriteString(post.ID + "\n")
+
+			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			continue
+		}
+
+		fmt.Println("Image (type: " + imageType + ") is unique, adding ID and hash to database...")
+
+		idset[post.ID] = struct{}{}
+		hashset[hash] = struct{}{}
+		f.WriteString(post.ID + "," + hash + "\n")
+
+		fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+
+		return post, imageData, path.Base(url)
+	}
+	fmt.Fprintln(os.Stderr, "Warn: No unique posts were found.")
+	os.Exit(0)
+
+	return nil, nil, "" // Still have to return something, even if os.Exit() is being called.
+}
+
+func createTwitterPost(config Conf, post *reddit.Post, image image.Image, file string) {
+	fmt.Println("Uploading", file, "to twitter...")
+
+	oconfig := oauth1.NewConfig(config.Twitter.Conk, config.Twitter.Cons)
+	token := oauth1.NewToken(config.Twitter.Token, config.Twitter.ToknS)
+	tclient := twitter.NewClient(oconfig.Client(oauth1.NoContext, token))
+
+	var buf bytes.Buffer
+	jpeg.Encode(&buf, image, &jpeg.Options{
+		/* Theoretically, yes, there is some *slight* generation loss from lossy re-encoding.
+		However, with JPEG quality 100, the generation loss is imperceptable to humans, even after many re-encodes.*/
+		Quality: 100,
+	})
+
+	res, resp, err := tclient.Media.Upload(buf.Bytes(), "image/jpeg")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to upload image to Twitter! Error:\n", err)
+		os.Exit(1)
+	}
+	resp.Body.Close()
+
+	fmt.Println("Creating tweet...")
+	isNSFW := post.NSFW || post.Spoiler
+	tweet, resp, err := tclient.Statuses.Update(post.Title+" https://redd.it/"+post.ID, &twitter.StatusUpdateParams{
+		MediaIds:          []int64{res.MediaID},
+		PossiblySensitive: &isNSFW,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Fatal: Unable to create Tweet! Error:\n", err)
+		os.Exit(1)
+	}
+	resp.Body.Close()
+
+	fmt.Println("Tweet:\n\t"+tweet.Text, "\n\thttps://twitter.com/"+tweet.User.ScreenName+"/status/"+tweet.IDStr)
+}
+
+func main() {
+	configFile := "conf.json"
+	depthLimit := 50
+	if len(os.Args[1:]) > 0 {
+		configFile = os.Args[1]
+	}
+	if len(os.Args[1:]) > 1 {
+		i, err := strconv.Atoi(os.Args[2])
+		if err == nil {
+			if depthLimit > 100 {
+				fmt.Fprintln(os.Stderr, "Warn: Depth limit must be less than or equal to 100.")
+				depthLimit = 100
+			} else if depthLimit < 1 {
+				fmt.Fprintln(os.Stderr, "Warn: Depth limit must be greater than 0.")
+				depthLimit = 1
+			} else {
+				depthLimit = i
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Warn: Unable to parse post depth argument!")
+		}
+	}
+
+	idset, hashset, config, rawDB := loadData(configFile)
+	defer rawDB.Close()
+
+	http.DefaultClient.Timeout = 30 * time.Second
+	posts := filterRedditPosts(getRedditPosts(config, depthLimit))
+	post, image, imageName := getUniqueRedditPost(posts, rawDB, idset, hashset)
+	createTwitterPost(config, post, image, imageName)
 }
