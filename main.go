@@ -290,7 +290,7 @@ func createTwitterPost(config Conf, post *reddit.Post, image image.Image, file s
 	}
 	resp.Body.Close()
 
-	fmt.Println("Creating tweet (PostID: "+post.ID+")...")
+	fmt.Println("Creating tweet (PostID: " + post.ID + ")...")
 	isNSFW := post.NSFW || post.Spoiler
 	tweet, resp, err := tclient.Statuses.Update(post.Title+" https://redd.it/"+post.ID, &twitter.StatusUpdateParams{
 		MediaIds:          []int64{res.MediaID},
