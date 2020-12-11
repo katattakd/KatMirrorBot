@@ -152,7 +152,7 @@ func filterRedditPosts(posts []*reddit.Post) []*reddit.Post {
 	}
 
 	var goodPosts []*reddit.Post
-	for i, post := range posts {
+	for _, post := range posts {
 		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 || int(post.UpvoteRatio*100) < upvoteRatioTarget || post.Score < scoreTarget || float64(post.Score)/time.Since(post.Created.Time).Hours() < float64(upvoteRateTarget) || time.Now().UTC().Sub(post.Created.Time.UTC()) < ageTargetMin {
 			continue
 		}
