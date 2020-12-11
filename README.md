@@ -2,17 +2,15 @@
 KatMirrorBot is an image mirroring bot that tries to mirror the *best* content from Reddit to Twitter. Used by [@it_meirl_bot](https://twitter.com/it_meirl_bot).
 
 ## Features
-- Simple configuration, with support for multiple subreddits and multiple accounts.
-- Easily recovers from crashes, without leaving behind temporary files.
-- Graceful shutdown allows the bot to finish sending in-progress posts before stopping.
-- Has both an easy to read verbose log format, or a minimal quiet log format.
+- Extremely simple configuration.
+- Only runs during posting, 
+- Easily recovers from crashes and network errors, without leaving behind temporary files.
 - Human-readable and easily editable data storage format, backwards-compatible with [Tootgo](https://github.com/katattakd/Tootgo).
-- Fast in-RAM data storage, with extremely quick post lookups and very little disk load.
 - Automatically detects the best "hot" posts to mirror, based on various metrics like upvotes, upvote rate, upvote:downvote ratio, and post age.
 - Automatic post criteria detection based on other subreddit posts.
 - Detects and prevents "reposts" (duplicate images) from being uploaded to the bot account.
 - Automatically fixes corrupted images, and discards those that can't be fixed.
-- Automatic post interval detection based on post depth and subreddit activity.
+- Automatically optimized uploaded images for Twitter.
 - Written in pure Golang with no C dependencies, to allow for easy cross-compilation.
 
 ## Compiling
@@ -24,10 +22,18 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 ## Usage
 1. Get Twitter API keys from [developer.twitter.com](https://developer.twitter.com/en). How to do this is outside the scope of this README.
 2. Edit the conf.json file. Fill in your API keys and the subreddits you want to mirror (by default, the program mirrors [/r/all](https://www.reddit.com/r/all) and [/r/popular](https://www.reddit.com/r/popular).
-   - If you're an advanced user and intend to run multiple bots, setting `"verbose"` to `false` is highly recommended. Normal users can leave it at it's default of `true`. 
-3. Run KatMirrorBot in your terminal. The program can be stopped by pressing Ctrl+C, which will also stop any downloads or uploads that are currently happening.
+3. Test your configuration by running the KatMirrorBot in your terminal.
+4. Move your configuration file, database file, and the KatMirrorBot folder (but not it's contents) to your user's home folder.
+4. Add the following lines to your crontab (`crontab -e`):
+```cron
+5,15,25,35,45,55 * * * * ~/KatMirrorBot/KatMirrorBot conf.json 5  > mirror_5m.log 2>&1
+10,50            * * * * ~/KatMirrorBot/KatMirrorBot conf.json 10 > mirror_10m.log 2>&1
+20,40            * * * * ~/KatMirrorBot/KatMirrorBot conf.json 20 > mirror_20m.log 2>&1
+30               * * * * ~/KatMirrorBot/KatMirrorBot conf.json 30 > mirror_30m.log 2>&1
+0                * * * * ~/KatMirrorBot/KatMirrorBot conf.json 60 > mirror_60m.log 2>&1
+```
+This allows the bot to adapt it's posting interval and post depth as necessary, and prevents the bot from running twice.
 
 ## Advanced usage
-- If you intend to run more than one mirror bot using the program, it's recommended that you disable verbose output. Console messages from the different bots will interfere with each-other, creating a confusing mess in your terminal.
 - If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 256-bit perception hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
 - Cross-compilation should be trivial to do (setting the `GOOS` and `GOARCH` environment variables), due to the lack of C dependencies. For a list of targets supported by the Golang compiler, run `go tool dist list`.
