@@ -26,14 +26,15 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 4. Move your configuration file, database file, and the KatMirrorBot folder (but not it's contents) to your user's home folder.
 4. Add the following lines to your crontab (`crontab -e`):
 ```cron
-5,15,25,35,45,55 * * * * ~/KatMirrorBot/KatMirrorBot conf.json 5  > mirror_5m.log 2>&1
-10,50            * * * * ~/KatMirrorBot/KatMirrorBot conf.json 10 > mirror_10m.log 2>&1
-20,40            * * * * ~/KatMirrorBot/KatMirrorBot conf.json 20 > mirror_20m.log 2>&1
-30               * * * * ~/KatMirrorBot/KatMirrorBot conf.json 30 > mirror_30m.log 2>&1
-0                * * * * ~/KatMirrorBot/KatMirrorBot conf.json 60 > mirror_60m.log 2>&1
+5,15,25,35,45,55 * * * * ~/KatMirrorBot/KatMirrorBot conf.json 10 > mirror_5m.log 2>&1
+10,50            * * * * ~/KatMirrorBot/KatMirrorBot conf.json 20 > mirror_10m.log 2>&1
+20,40            * * * * ~/KatMirrorBot/KatMirrorBot conf.json 30 > mirror_20m.log 2>&1
+30               * * * * ~/KatMirrorBot/KatMirrorBot conf.json 40 > mirror_30m.log 2>&1
+0                * * * * ~/KatMirrorBot/KatMirrorBot conf.json 50 > mirror_60m.log 2>&1
 ```
 This allows the bot to adapt it's posting interval and post depth as necessary, and prevents the bot from running twice.
 
 ## Advanced usage
 - If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 256-bit perception hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
 - Cross-compilation should be trivial to do (setting the `GOOS` and `GOARCH` environment variables), due to the lack of C dependencies. For a list of targets supported by the Golang compiler, run `go tool dist list`.
+- The arguments KatMirrorBot accepts are a config file and a post depth. If omitted, the config file defaults to `conf.json`, and the post depth defaults to 50.
