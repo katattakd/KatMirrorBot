@@ -37,4 +37,4 @@ This allows the bot to adapt it's posting interval and post depth as necessary, 
 ## Advanced usage
 - If you intend to edit the stored posts, they're stored in the `posts.csv` file. The first (required) column contains the post's ID, and the second (optional) column contains a 256-bit perception hash of the post's image. The order of rows does not matter, however, the file should not end with a newline.
 - Cross-compilation should be trivial to do (setting the `GOOS` and `GOARCH` environment variables), due to the lack of C dependencies. For a list of targets supported by the Golang compiler, run `go tool dist list`.
-- The arguments KatMirrorBot accepts are a config file and a post depth. If omitted, the config file defaults to `conf.json`, and the post depth defaults to 50.
+- The arguments KatMirrorBot accepts are a config file and a post depth limit. If omitted, the config file defaults to `conf.json`, and the depth limit defaults to 50.
