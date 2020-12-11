@@ -7,7 +7,7 @@
 	},
 	"reddit": {
 		"subreddits": ["all", "popular"],
-		"analysisdepth": 50
+		"analysisdepth": 75
 	},
 	"postdb": "posts.csv"
 }
