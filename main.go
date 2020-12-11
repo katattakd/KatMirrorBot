@@ -187,6 +187,8 @@ func downloadImageURL(url string) (*http.Response, string, error) {
 func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, postLimit int) (*reddit.Post, image.Image, string) {
 	if len(posts) > postLimit {
 		fmt.Println("Limiting search depth to", postLimit, "posts.")
+	} else {
+		postLimit = len(posts)	
 	}
 	for i, post := range posts {
 		if i > postLimit {
@@ -198,7 +200,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 			continue
 		}
 
-		fmt.Println("\nPotentially unique post", post.ID, "found at a post depth of", i, "/", len(posts))
+		fmt.Println("\nPotentially unique post", post.ID, "found at a post depth of", i, "/", postLimit)
 
 		resp, url, err := downloadImageURL(post.URL)
 		if err != nil {
