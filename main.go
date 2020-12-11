@@ -34,7 +34,7 @@ type Conf struct {
 	} `json:"twitter"`
 	Reddit struct {
 		Subs []string `json:"subreddits"`
-		Dept uint     `json:"analysisdepth"`
+		Dept int      `json:"analysisdepth"`
 	} `json:"reddit"`
 	DBFile string `json:"postdb"`
 }
