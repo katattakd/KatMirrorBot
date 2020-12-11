@@ -256,7 +256,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 
 		return post, imageData, path.Base(url)
 	}
-	fmt.Fprintln(os.Stderr, "Warn: No unique posts were found.")
+	fmt.Fprintln(os.Stderr, "\nWarn: No unique posts were found.")
 	os.Exit(0)
 
 	return nil, nil, "" // Still have to return something, even if os.Exit() is being called.
