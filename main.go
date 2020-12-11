@@ -77,7 +77,7 @@ func loadData(configFile string) (map[string]struct{}, map[string]struct{}, Conf
 	return idset, hashset, config, f
 }
 
-func getRedditPosts(config Conf, postLimit int) []*reddit.Post {
+func getRedditPosts(config Conf) []*reddit.Post {
 	var subreddit string
 	for i, sub := range config.Reddit.Subs {
 		if i == 0 {
@@ -99,7 +99,7 @@ func getRedditPosts(config Conf, postLimit int) []*reddit.Post {
 
 	fmt.Println("Downloading list of \"hot\" posts on /r/" + subreddit + "...")
 	posts, resp, err := rclient.Subreddit.HotPosts(ctx, subreddit, &reddit.ListOptions{
-		Limit: postLimit,
+		Limit: 100,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Fatal: Unable to download post list! Error:\n", err)
@@ -152,7 +152,7 @@ func filterRedditPosts(posts []*reddit.Post) []*reddit.Post {
 	}
 
 	var goodPosts []*reddit.Post
-	for _, post := range posts {
+	for i, post := range posts {
 		if post.IsSelfPost || post.Stickied || post.Locked || !isImageURL(post.URL) || len(post.Title) > 257 || int(post.UpvoteRatio*100) < upvoteRatioTarget || post.Score < scoreTarget || float64(post.Score)/time.Since(post.Created.Time).Hours() < float64(upvoteRateTarget) || time.Now().UTC().Sub(post.Created.Time.UTC()) < ageTargetMin {
 			continue
 		}
@@ -184,8 +184,15 @@ func downloadImageURL(url string) (*http.Response, string, error) {
 	return resp, url, err
 }
 
-func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]struct{}, hashset map[string]struct{}) (*reddit.Post, image.Image, string) {
+func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, postLimit int) (*reddit.Post, image.Image, string) {
+	if len(posts) > postLimit {
+		fmt.Println("Limiting search depth to", postLimit, "posts.")
+	}
 	for i, post := range posts {
+		if i > postLimit {
+			break
+		}
+
 		_, ok := idset[post.ID]
 		if ok {
 			continue
@@ -325,7 +332,7 @@ func main() {
 	defer rawDB.Close()
 
 	http.DefaultClient.Timeout = 30 * time.Second
-	posts := filterRedditPosts(getRedditPosts(config, depthLimit))
-	post, image, imageName := getUniqueRedditPost(posts, rawDB, idset, hashset)
+	posts := filterRedditPosts(getRedditPosts(config))
+	post, image, imageName := getUniqueRedditPost(posts, rawDB, idset, hashset, depthLimit)
 	createTwitterPost(config, post, image, imageName)
 }
