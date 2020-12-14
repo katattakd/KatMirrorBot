@@ -245,6 +245,18 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 		}
 		hash := hashraw.ToString()
 
+		chashraw, err := goimagehash.ExtPerceptionHash(imageData, 8, 8)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warn: Unable to hash image! Error:\n", err)
+
+			idset[post.ID] = struct{}{}
+			f.WriteString(post.ID + "\n")
+
+			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			continue
+		}
+		chash := chashraw.ToString()
+
 		_, ok = hashset[hash]
 		if ok {
 			fmt.Println("Duplicate image detected, skipping post and adding ID to database.")
@@ -260,7 +272,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 
 		idset[post.ID] = struct{}{}
 		hashset[hash] = struct{}{}
-		f.WriteString(post.ID + "," + hash + "\n")
+		f.WriteString(post.ID + "," + hash + "," + chash + "\n") // Note: Coarse P-hash is currently unused. This will change in future releases.
 
 		fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
 
