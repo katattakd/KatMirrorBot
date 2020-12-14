@@ -41,7 +41,7 @@ type Conf struct {
 
 var ctx = context.Background()
 
-func loadData(configFile string) (map[string]struct{}, map[string]struct{}, Conf, *os.File) {
+func loadData(configFile string) (map[string]struct{}, map[string]struct{}, map[string][]string, Conf, *os.File) {
 	fmt.Println("Loading " + configFile + "...")
 
 	var config Conf
@@ -62,20 +62,23 @@ func loadData(configFile string) (map[string]struct{}, map[string]struct{}, Conf
 		os.Exit(1)
 	}
 
-	idset := make(map[string]struct{})
-	hashset := make(map[string]struct{})
+	idset, hashset, chashset := make(map[string]struct{}), make(map[string]struct{}), make(map[string][]string)
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		postinfo := strings.Split(scanner.Text(), ",")
-		if len(postinfo) == 1 {
+		if len(postinfo) >= 1 {
 			idset[postinfo[0]] = struct{}{}
-		} else {
-			idset[postinfo[0]] = struct{}{}
+		}
+		if len(postinfo) >= 2 && postinfo[1] != "" {
 			hashset[postinfo[1]] = struct{}{}
+
+			if len(postinfo) >= 3 && postinfo[2] != "" {
+				chashset[postinfo[2]] = append(chashset[postinfo[2]], postinfo[1])
+			}
 		}
 	}
-	fmt.Println(len(idset), "post IDs loaded into memory,", len(hashset), "image hashes loaded into memory.\n\n")
-	return idset, hashset, config, f
+	fmt.Println(len(idset), "post IDs loaded into memory,", len(hashset)+len(chashset), "image hashes loaded into memory.\n\n")
+	return idset, hashset, chashset, config, f
 }
 
 func getRedditPosts(config Conf) []*reddit.Post {
@@ -185,7 +188,7 @@ func downloadImageURL(url string) (*http.Response, string, error) {
 	return resp, url, err
 }
 
-func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, postLimit int) (*reddit.Post, image.Image, string) {
+func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]struct{}, hashset map[string]struct{}, chashset map[string][]string, postLimit int) (*reddit.Post, image.Image, string) {
 	if len(posts) > postLimit {
 		fmt.Println("Limiting search depth to", postLimit, "posts.")
 	} else {
@@ -216,7 +219,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 			idset[post.ID] = struct{}{}
 			f.WriteString(post.ID + "\n")
 
-			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
 			continue
 		}
 
@@ -229,7 +232,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 			idset[post.ID] = struct{}{}
 			f.WriteString(post.ID + "\n")
 
-			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
 			continue
 		}
 
@@ -240,7 +243,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 			idset[post.ID] = struct{}{}
 			f.WriteString(post.ID + "\n")
 
-			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
 			continue
 		}
 		hash := hashraw.ToString()
@@ -252,7 +255,7 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 			idset[post.ID] = struct{}{}
 			f.WriteString(post.ID + "\n")
 
-			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			fmt.Println("Skipping post and adding ID to database.\nDatabase now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
 			continue
 		}
 		chash := chashraw.ToString()
@@ -264,17 +267,49 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 			idset[post.ID] = struct{}{}
 			f.WriteString(post.ID + "\n")
 
-			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+			fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
 			continue
+		}
+
+		val, ok := chashset[chash]
+		if ok {
+			distance := 255
+			for _, phash := range val {
+				rawphash, err := goimagehash.ExtImageHashFromString(phash)
+				if err != nil {
+					continue
+				}
+
+				dist, err := hashraw.Distance(rawphash)
+				if err != nil {
+					continue
+				}
+
+				if distance > dist {
+					distance = dist
+				}
+			}
+			if distance <= 4 {
+				fmt.Println("Similar image detected (hash similarity: " + strconv.Itoa(255-distance) + "/255 bits), skipping post and adding ID+hash to database.")
+
+				idset[post.ID] = struct{}{}
+				hashset[hash] = struct{}{}
+				chashset[chash] = append(chashset[chash], hash)
+				f.WriteString(post.ID + "," + hash + "," + chash + "\n")
+
+				fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
+				continue
+			}
 		}
 
 		fmt.Println("Image (type: " + imageType + ") is unique, adding ID and hash to database...")
 
 		idset[post.ID] = struct{}{}
 		hashset[hash] = struct{}{}
-		f.WriteString(post.ID + "," + hash + "," + chash + "\n") // Note: Coarse P-hash is currently unused. This will change in future releases.
+		chashset[chash] = append(chashset[chash], hash)
+		f.WriteString(post.ID + "," + hash + "," + chash + "\n")
 
-		fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset), "hashes.\n")
+		fmt.Println("Database now contains", len(idset), "post IDs and", len(hashset)+len(chashset), "hashes.\n")
 
 		return post, imageData, path.Base(url)
 	}
@@ -343,11 +378,11 @@ func main() {
 		}
 	}
 
-	idset, hashset, config, rawDB := loadData(configFile)
+	idset, hashset, chashset, config, rawDB := loadData(configFile)
 	defer rawDB.Close()
 
 	http.DefaultClient.Timeout = 30 * time.Second
 	posts := filterRedditPosts(getRedditPosts(config))
-	post, image, imageName := getUniqueRedditPost(posts, rawDB, idset, hashset, depthLimit)
+	post, image, imageName := getUniqueRedditPost(posts, rawDB, idset, hashset, chashset, depthLimit)
 	createTwitterPost(config, post, image, imageName)
 }
