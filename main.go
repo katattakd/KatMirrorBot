@@ -149,9 +149,7 @@ func filterRedditPosts(posts []*reddit.Post) []*reddit.Post {
 	if len(scores) > 10 {
 		upvoteRatioTarget = upvoteRatios[(len(upvoteRatios)/10)-1]
 		fmt.Println("\tMinimum upvote to downvote ratio:", float32(upvoteRatioTarget)/100)
-	}
-	if len(scores) > 6 {
-		ageTargetMin = time.Duration(ages[(len(ages)/5)-1]) * time.Second
+		ageTargetMin = time.Duration(ages[(len(ages)/10)-1]) * time.Second
 		fmt.Println("\tMinimum post age:", ageTargetMin.Round(time.Second))
 	}
 
