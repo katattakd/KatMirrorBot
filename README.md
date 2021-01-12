@@ -9,6 +9,7 @@ KatMirrorBot is an image mirroring bot that tries to mirror the *best* content f
 - Automatically detects the best "hot" posts to mirror, based on various metrics like upvotes, upvote rate, upvote:downvote ratio, and post age.
 - Automatic post criteria detection based on other subreddit posts.
 - Detects and prevents "reposts" (duplicate images) from being uploaded to the bot account.
+- Uses advanced duplicate detetion to find duplicates that are visually similar, but have slight alterations (scaling artifacts, color changes, lossy compression artifacts, slight cropping)
 - Automatically fixes corrupted images, and discards those that can't be fixed.
 - Automatically optimized uploaded images for Twitter.
 - Written in pure Golang with no C dependencies, to allow for easy cross-compilation.

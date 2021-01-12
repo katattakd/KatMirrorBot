@@ -289,8 +289,8 @@ func getUniqueRedditPost(posts []*reddit.Post, f *os.File, idset map[string]stru
 					distance = dist
 				}
 			}
-			if distance <= 4 {
-				fmt.Println("Similar image detected (hash similarity: " + strconv.Itoa(255-distance) + "/255 bits), skipping post and adding ID+hash to database.")
+			if distance <= 8 {
+				fmt.Println("Similar image detected (hash similarity: " + strconv.FormatFloat(float64(distance)/255, 'f', 2, 64) + "%), skipping post and adding ID+hash to database.")
 
 				idset[post.ID] = struct{}{}
 				hashset[hash] = struct{}{}
